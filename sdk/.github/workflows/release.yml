@@ -1,0 +1,109 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.9"
+
+      - name: Build
+        run: swift build -c release -v
+
+      - name: Run unit tests
+        run: swift test --filter AllScreenshotsSDKTests -v
+
+      - name: Run integration tests
+        env:
+          ALLSCREENSHOTS_API_KEY: ${{ secrets.ALLSCREENSHOTS_API_KEY }}
+        run: |
+          if [ -n "$ALLSCREENSHOTS_API_KEY" ]; then
+            swift test --filter IntegrationTests -v
+          else
+            echo "Skipping integration tests: ALLSCREENSHOTS_API_KEY not set"
+          fi
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-report.html
+          if-no-files-found: ignore
+
+  release:
+    name: Create Release
+    needs: test
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREVIOUS_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s" HEAD~10..HEAD)
+          fi
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: AllScreenshots SDK Swift v${{ steps.version.outputs.VERSION }}
+          body: |
+            ## AllScreenshots SDK for Swift v${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+
+            Add to your `Package.swift`:
+
+            ```swift
+            dependencies: [
+                .package(url: "https://github.com/allscreenshots/allscreenshots-sdk-swift.git", from: "${{ steps.version.outputs.VERSION }}")
+            ]
+            ```
+
+            ### Changes
+
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ### Documentation
+
+            See the [README](https://github.com/allscreenshots/allscreenshots-sdk-swift#readme) for full documentation.
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Notify Swift Package Index
+        run: |
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"repository_url": "https://github.com/allscreenshots/allscreenshots-sdk-swift"}' \
+            "https://swiftpackageindex.com/api/packages" || true

@@ -1,0 +1,103 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Build & Test
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.9"
+
+      - name: Build
+        run: swift build -v
+
+      - name: Run unit tests
+        run: swift test --filter AllScreenshotsSDKTests -v
+
+      - name: Run integration tests
+        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          ALLSCREENSHOTS_API_KEY: ${{ secrets.ALLSCREENSHOTS_API_KEY }}
+        run: |
+          if [ -n "$ALLSCREENSHOTS_API_KEY" ]; then
+            swift test --filter IntegrationTests -v
+          else
+            echo "Skipping integration tests: ALLSCREENSHOTS_API_KEY not set"
+          fi
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: test-report.html
+          if-no-files-found: ignore
+
+  lint:
+    name: Lint
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.9"
+
+      - name: Install SwiftLint
+        run: brew install swiftlint || true
+
+      - name: Run SwiftLint
+        run: |
+          if command -v swiftlint &> /dev/null; then
+            swiftlint lint --reporter github-actions-logging || true
+          else
+            echo "SwiftLint not installed, skipping"
+          fi
+
+  build-platforms:
+    name: Build (${{ matrix.platform }})
+    runs-on: macos-14
+    strategy:
+      matrix:
+        platform: [macOS, iOS, tvOS, watchOS]
+        include:
+          - platform: macOS
+            destination: "platform=macOS"
+          - platform: iOS
+            destination: "platform=iOS Simulator,name=iPhone 15"
+          - platform: tvOS
+            destination: "platform=tvOS Simulator,name=Apple TV"
+          - platform: watchOS
+            destination: "platform=watchOS Simulator,name=Apple Watch Series 9 (45mm)"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.9"
+
+      - name: Build for ${{ matrix.platform }}
+        run: |
+          xcodebuild build \
+            -scheme AllScreenshotsSDK \
+            -destination "${{ matrix.destination }}" \
+            -skipPackagePluginValidation \
+            | xcpretty || true
