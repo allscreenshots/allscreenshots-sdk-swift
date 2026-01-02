@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    name: Test
+    name: Test before release
     runs-on: macos-14
 
     steps:
@@ -19,13 +19,16 @@ jobs:
         with:
           swift-version: "5.9"
 
-      - name: Build
+      - name: Build SDK
+        working-directory: sdk
         run: swift build -c release -v
 
       - name: Run unit tests
+        working-directory: sdk
         run: swift test --filter AllScreenshotsSDKTests -v
 
       - name: Run integration tests
+        working-directory: sdk
         env:
           ALLSCREENSHOTS_API_KEY: ${{ secrets.ALLSCREENSHOTS_API_KEY }}
         run: |
@@ -35,18 +38,12 @@ jobs:
             echo "Skipping integration tests: ALLSCREENSHOTS_API_KEY not set"
           fi
 
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report
-          path: test-report.html
-          if-no-files-found: ignore
-
   release:
-    name: Create Release
+    name: Create release
     needs: test
     runs-on: macos-14
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -58,28 +55,13 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
 
-      - name: Generate changelog
-        id: changelog
-        run: |
-          # Get commits since last tag
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -n "$PREVIOUS_TAG" ]; then
-            CHANGELOG=$(git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD)
-          else
-            CHANGELOG=$(git log --pretty=format:"- %s" HEAD~10..HEAD)
-          fi
-          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          name: AllScreenshots SDK Swift v${{ steps.version.outputs.VERSION }}
+          name: v${{ steps.version.outputs.VERSION }}
+          generate_release_notes: true
           body: |
-            ## AllScreenshots SDK for Swift v${{ steps.version.outputs.VERSION }}
-
-            ### Installation
+            ## Installation
 
             Add to your `Package.swift`:
 
@@ -89,13 +71,14 @@ jobs:
             ]
             ```
 
-            ### Changes
+            Then add the dependency to your target:
 
-            ${{ steps.changelog.outputs.CHANGELOG }}
-
-            ### Documentation
-
-            See the [README](https://github.com/allscreenshots/allscreenshots-sdk-swift#readme) for full documentation.
+            ```swift
+            .target(
+                name: "YourTarget",
+                dependencies: ["AllScreenshotsSDK"]
+            )
+            ```
           draft: false
           prerelease: false
         env:

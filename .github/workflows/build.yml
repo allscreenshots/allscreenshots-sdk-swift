@@ -1,4 +1,4 @@
-name: Build & Test
+name: Build and Test
 
 on:
   push:
@@ -7,8 +7,8 @@ on:
     branches: [main]
 
 jobs:
-  build:
-    name: Build & Test
+  build-sdk:
+    name: Build and test SDK
     runs-on: macos-14
 
     steps:
@@ -20,33 +20,16 @@ jobs:
         with:
           swift-version: "5.9"
 
-      - name: Build
+      - name: Build SDK
+        working-directory: sdk
         run: swift build -v
 
-      - name: Run unit tests
+      - name: Run SDK unit tests
+        working-directory: sdk
         run: swift test --filter AllScreenshotsSDKTests -v
 
-      - name: Run integration tests
-        if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-        env:
-          ALLSCREENSHOTS_API_KEY: ${{ secrets.ALLSCREENSHOTS_API_KEY }}
-        run: |
-          if [ -n "$ALLSCREENSHOTS_API_KEY" ]; then
-            swift test --filter IntegrationTests -v
-          else
-            echo "Skipping integration tests: ALLSCREENSHOTS_API_KEY not set"
-          fi
-
-      - name: Upload test report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-report
-          path: test-report.html
-          if-no-files-found: ignore
-
   lint:
-    name: Lint
+    name: Lint SDK
     runs-on: macos-14
 
     steps:
@@ -62,6 +45,7 @@ jobs:
         run: brew install swiftlint || true
 
       - name: Run SwiftLint
+        working-directory: sdk
         run: |
           if command -v swiftlint &> /dev/null; then
             swiftlint lint --reporter github-actions-logging || true
@@ -70,7 +54,7 @@ jobs:
           fi
 
   build-platforms:
-    name: Build (${{ matrix.platform }})
+    name: Build SDK (${{ matrix.platform }})
     runs-on: macos-14
     strategy:
       matrix:
@@ -94,10 +78,63 @@ jobs:
         with:
           swift-version: "5.9"
 
-      - name: Build for ${{ matrix.platform }}
+      - name: Build SDK for ${{ matrix.platform }}
+        working-directory: sdk
         run: |
           xcodebuild build \
             -scheme AllScreenshotsSDK \
             -destination "${{ matrix.destination }}" \
             -skipPackagePluginValidation \
             | xcpretty || true
+
+  build-sample-app:
+    name: Build sample app
+    runs-on: macos-14
+    needs: build-sdk
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.9"
+
+      - name: Build sample app
+        working-directory: sample-app
+        run: swift build -v
+
+  integration-tests:
+    name: Integration tests
+    runs-on: macos-14
+    needs: build-sdk
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.9"
+
+      - name: Run integration tests
+        working-directory: sdk
+        env:
+          ALLSCREENSHOTS_API_KEY: ${{ secrets.ALLSCREENSHOTS_API_KEY }}
+        run: |
+          if [ -n "$ALLSCREENSHOTS_API_KEY" ]; then
+            swift test --filter IntegrationTests -v
+          else
+            echo "Skipping integration tests: ALLSCREENSHOTS_API_KEY not set"
+          fi
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: sdk/test-report.html
+          if-no-files-found: ignore
