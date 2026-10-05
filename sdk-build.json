@@ -1,0 +1,14 @@
+{
+  "language": "swift",
+  "build": [
+    [
+      "swift",
+      "build",
+      "--package-path",
+      "sample-app"
+    ]
+  ],
+  "run": [
+    "./sample-app/.build/debug/SDKDemo"
+  ]
+}

@@ -1,0 +1,14 @@
+name: AllScreenshotsSDK
+targets:
+  AllScreenshotsSDK:
+    type: framework
+    platform: iOS
+    deploymentTarget: "11.0"
+    sources: [Sources]
+    info:
+      path: ./Info.plist
+      version: 2.0.0
+    settings:
+      APPLICATION_EXTENSION_API_ONLY: true
+    scheme: {}
+    dependencies:
